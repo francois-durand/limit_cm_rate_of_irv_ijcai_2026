@@ -4,6 +4,10 @@ import numpy as np
 from scipy.stats import qmc
 from scipy.special import erfinv
 
+# Sobol points are clipped into (_U_EPS, 1 - _U_EPS) before the inverse
+# normal CDF (standard normal quantile of 1e-12 is about -7.03).
+_U_EPS = 1e-12
+
 
 def _masks_for_nonempty_subsets(m: int) -> np.ndarray:
     """
@@ -318,6 +322,12 @@ def _orthant_prob_qmc(
     while total_generated < n_pow2:
         b = min(batch_pow2, n_pow2 - total_generated)  # this is a power of two
         u = rng.random(b)  # (b, d) in [0, 1]^d, no warning since b is 2^k
+        # A Sobol coordinate can be exactly 0 (or round to 1), and
+        # erfinv(-1) = -inf then turns the whole row into NaN after the matmul
+        # ("invalid value encountered in matmul", seen for m >= 9 with seed 0),
+        # the row being counted as non-positive. Clip into (eps, 1 - eps): this
+        # changes only the points that were exactly on the boundary.
+        u = np.clip(u, _U_EPS, 1.0 - _U_EPS)
         # Map uniforms to standard normals via inverse CDF
         z = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)  # (b, d)
         # X ~ N(0, H) via Cholesky
